@@ -10,6 +10,7 @@ from huaweicloudsdkconfig.v1 import ConfigClient, ShowTrackerConfigRequest
 from huaweicloudsdkconfig.v1.region.config_region import ConfigRegion
 from huaweicloudsdkcore.auth.credentials import BasicCredentials, GlobalCredentials
 from huaweicloudsdkecs.v2 import *
+from huaweicloudsdkecs.v2.region.ecs_region import EcsRegion
 from huaweicloudsdkevs.v2 import *
 from huaweicloudsdkevs.v2.region.evs_region import EvsRegion
 from huaweicloudsdkiam.v3 import IamClient
@@ -17,6 +18,8 @@ from huaweicloudsdkiam.v3.region.iam_region import IamRegion
 from huaweicloudsdkvpc.v2 import *
 from huaweicloudsdktms.v1 import *
 from huaweicloudsdktms.v1.region.tms_region import TmsRegion
+from huaweicloudsdkcbr.v1 import *
+from huaweicloudsdkcbr.v1.region.cbr_region import CbrRegion
 
 log = logging.getLogger('custodian.huaweicloud.client')
 
@@ -62,6 +65,11 @@ class Session:
             client = TmsClient.new_builder() \
                 .with_credentials(globalCredentials) \
                 .with_region(TmsRegion.value_of(self.region)) \
+                .build()
+        elif service == 'cbr':
+            client = CbrClient.new_builder() \
+                .with_credentials(credentials) \
+                .with_region(CbrRegion.value_of(self.region)) \
                 .build()
         elif service == 'iam':
             globalCredentials = GlobalCredentials(self.ak, self.sk)
