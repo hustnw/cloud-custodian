@@ -7,7 +7,7 @@ EVS - Delete Unencrypted
      - name: terminate-unencrypted-evs
        description: |
          Terminate all unencrypted EVS volumes upon creation
-       resource: huaweicloud.volume
+       resource: huaweicloud.evs-volume
        filters:
          - or:
             - type: value
