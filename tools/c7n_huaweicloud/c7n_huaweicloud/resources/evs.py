@@ -6,19 +6,31 @@ import time
 from concurrent.futures import as_completed
 from datetime import datetime, timedelta, timezone
 
-from huaweicloudsdkcore.auth.credentials import BasicCredentials
 from huaweicloudsdkcore.exceptions import exceptions
-from huaweicloudsdkevs.v2 import *
-from huaweicloudsdkecs.v2.region.ecs_region import EcsRegion
-from huaweicloudsdkecs.v2 import *
-from huaweicloudsdkcbr.v1.region.cbr_region import CbrRegion
-from huaweicloudsdkcbr.v1 import *
+from huaweicloudsdkevs.v2 import (
+    CreateVolumeRequestBody, CreateVolumeOption, CreateVolumeRequest,
+    BatchDeleteVolumeTagsRequestBody, DeleteTagsOption, BatchDeleteVolumeTagsRequest,
+    DeleteVolumeRequest, CreateSnapshotRequestBody, CreateSnapshotOption, CreateSnapshotRequest,
+    ResizeVolumeRequestBody, OsExtend, ResizeVolumeRequest, ShowJobRequest)
+from huaweicloudsdkecs.v2 import (
+    BatchStopServersRequestBody, BatchStopServersOption, ServerId, BatchStopServersRequest,
+    BatchStartServersRequestBody, BatchStartServersOption, BatchStartServersRequest,
+    UpdateServerBlockDeviceReq, UpdateServerBlockDeviceOption, UpdateServerBlockDeviceRequest,
+    AttachServerVolumeRequestBody, AttachServerVolumeOption, AttachServerVolumeRequest,
+    DetachServerVolumeRequest, ShowServerRequest)
+from huaweicloudsdkcbr.v1 import (
+    VaultBackupReq, VaultBackup, CheckpointParam, Resource, CreateCheckpointRequest,
+    VaultAssociate, AssociateVaultPolicyRequest, VaultAddResourceReq, ResourceCreate,
+    AddVaultResourceRequest, ListBackupsRequest, ShowCheckpointRequest, VaultCreateReq,
+    VaultCreate, BillingCreate, CreateVaultRequest, DeleteBackupRequest, DeleteVaultRequest,
+    ListVaultRequest)
 
 from c7n.utils import type_schema, local_session
-from c7n.filters import Filter
+from c7n.filters import Filter, AgeFilter
 from c7n_huaweicloud.actions.base import HuaweiCloudBaseAction
 from c7n_huaweicloud.provider import resources
 from c7n_huaweicloud.query import QueryResourceManager, TypeInfo
+
 
 log = logging.getLogger("custodian.huaweicloud.resources.evs")
 
@@ -60,15 +72,6 @@ class Volume(QueryResourceManager):
         id = 'id'
         tag_resource_type = 'disk'
 
-    def get_resources(self, resource_ids):
-        all_resources = self.resources
-        result = []
-        for resource in all_resources:
-            if resource['id'] in resource_ids:
-                result.append(resource)
-
-        return resources
-
 
 @Volume.filter_registry.register("not-protected-by-backup")
 class NotProtectedByBackupVolumes(Filter):
@@ -98,7 +101,7 @@ class NotProtectedByBackupVolumes(Filter):
 
 @Volume.filter_registry.register("last-backup-exceed-safe-time-interval")
 class LastBackupCreateExceedSafeTimeVolumes(Filter):
-    """Check if the creating time of the latest backup exceeds safe time interval in hours
+    """Check if the creating time of the latest backup exceeds safe time interval (in hours)
 
     .. code-block:: yaml
 
@@ -114,7 +117,7 @@ class LastBackupCreateExceedSafeTimeVolumes(Filter):
         'last-backup-exceed-safe-time-interval',
         required=['interval'],
         interval={'type': 'number'},
-        reference_time = {'type': 'string'}
+        reference_time={'type': 'string'}
     )
 
     def is_last_backup_exceed_safe_time_interval(self, volume, interval):
@@ -143,7 +146,34 @@ class LastBackupCreateExceedSafeTimeVolumes(Filter):
         return time_difference > timedelta(hours=interval)
 
     def process(self, resources, event=None):
-        return [r for r in resources if self.is_last_backup_exceed_safe_time_interval(r, self.data.get('interval'))]
+        return [r for r in resources if self.is_last_backup_exceed_safe_time_interval(
+            r, self.data.get('interval'))]
+
+
+@Volume.filter_registry.register('volume-age')
+class VolumeAge(AgeFilter):
+    """EVS Volume Age Filter
+
+    Filters an EVS volume based on the age of the volume (in days)
+
+    :example:
+
+    .. code-block:: yaml
+
+            policies:
+              - name: evs-volumes-days-old
+                resource: evs-volume
+                filters:
+                  - type: volume-age
+                    days: 7
+                    op: ge
+    """
+
+    schema = type_schema(
+        'volume-age',
+        days={'type': 'number'},
+        op={'$ref': '#/definitions/filters_common/comparison_operators'})
+    date_attribute = 'created_at'
 
 
 @Volume.action_registry.register("delete")
@@ -352,8 +382,9 @@ class EncryptInstanceDataVolumes(HuaweiCloudBaseAction):
 
     def process(self, volumes):
         original_count = len(volumes)
-        volumes = [v for v in volumes \
-                   if not str(v['metadata'].get('__system__encrypted')) == "1" and v['attachments'] \
+        volumes = [v for v in volumes
+                   if not str(v['metadata'].get('__system__encrypted')) == "1"
+                   and v['attachments']
                    and not v.get('volume_image_metadata')]
         log.debug(
             "EncryptVolumes filtered from %d to %d "
@@ -365,7 +396,6 @@ class EncryptInstanceDataVolumes(HuaweiCloudBaseAction):
         for v in volumes:
             instance_id = v['attachments'][0]['server_id']
             instance_vol_map.setdefault(instance_id, []).append(v)
-
 
         ecs_client = local_session(self.manager.session_factory).client('ecs')
         evs_client = self.manager.get_client()
@@ -411,8 +441,9 @@ class EncryptInstanceDataVolumes(HuaweiCloudBaseAction):
         # Create all the volumes before patching the instance.
         paired = []
         for volume in vol_set:
-            new_volume_id = self.create_encrypted_volume(cbr_client, evs_client, volume, self.data.get('key'),
-                                                         instance_id, volume_attachment_map)
+            new_volume_id = self.create_encrypted_volume(cbr_client, evs_client, volume,
+                                                         self.data.get('key'), instance_id,
+                                                         volume_attachment_map)
             paired.append((volume, new_volume_id))
 
         # Next detach and reattach
@@ -439,7 +470,8 @@ class EncryptInstanceDataVolumes(HuaweiCloudBaseAction):
             request = UpdateServerBlockDeviceRequest()
             request.volume_id = new_volume_id
             request.server_id = instance_id
-            if str(volume_attachment_map.get(old_volume_id, {}).get('delete_on_termination')).lower() == 'true':
+            if str(volume_attachment_map.get(old_volume_id, {}).get(
+                    'delete_on_termination')).lower() == 'true':
                 blockDevicebody = UpdateServerBlockDeviceOption(
                     delete_on_termination=True
                 )
@@ -513,7 +545,8 @@ class EncryptInstanceDataVolumes(HuaweiCloudBaseAction):
             return True
         return False
 
-    def create_encrypted_volume(self, cbr_client, evs_client, volume, key_id, instance_id, volume_attachment_map):
+    def create_encrypted_volume(self, cbr_client, evs_client, volume, key_id,
+                                instance_id, volume_attachment_map):
         volume_id = volume['id']
         volume_size = volume['size']
         transient_vault_id = None
@@ -632,7 +665,7 @@ class EncryptInstanceDataVolumes(HuaweiCloudBaseAction):
             if response.checkpoint.status == 'available':
                 log.info('create checkpoint of volume %s success' % volume_id)
                 break
-            time.sleep(1)
+            time.sleep(10)
 
         request = ListBackupsRequest()
         request.checkpoint_id = checkpoint_id
@@ -705,7 +738,8 @@ class VolumeAssociateToVaultPolicy(HuaweiCloudBaseAction):
                 policy_id: policy_id
     """
 
-    schema = type_schema("associate-volume-vault-to-policy", required=['policy_id'], policy_id={'type': 'string'})
+    schema = type_schema("associate-volume-vault-to-policy",
+                         required=['policy_id'], policy_id={'type': 'string'})
 
     def perform_action(self, resource):
         client = local_session(self.manager.session_factory).client('cbr')
@@ -722,3 +756,53 @@ class VolumeAssociateToVaultPolicy(HuaweiCloudBaseAction):
             policy_id=self.data.get('policy_id')
         )
         client.associate_vault_policy(request)
+
+
+@Volume.action_registry.register('backup')
+class CreateBackup(HuaweiCloudBaseAction):
+    """ Backup an evs volume.
+
+    :Example:
+
+    .. code-block:: yaml
+
+        policies:
+          - name: backup-volumes
+            resource: huaweicloud.evs-volume
+            filters:
+              - type: value
+                key: metadata.__system__encrypted
+                value: "1"
+            actions:
+              - backup
+    """
+
+    schema = type_schema("backup")
+
+    def perform_action(self, resource):
+        client = local_session(self.manager.session_factory).client('cbr')
+        volume_id = resource["id"]
+        log.info("begin to create backup of Volume %s" % volume_id)
+        response = get_cbr_vault_of_volume(client, volume_id)
+        if len(response.vaults) == 0:
+            log.info('volume %s has not associated to any vault, ignore' % volume_id)
+            return
+        vault_id = response.vaults[0].id
+        request = CreateCheckpointRequest()
+        listResourceDetailsParameters = [
+            Resource(
+                id=volume_id,
+                type=CBR_VOLUME_RESOURCE_TYPE
+            )
+        ]
+        parametersCheckpoint = CheckpointParam(
+            resource_details=listResourceDetailsParameters
+        )
+        checkpointbody = VaultBackup(
+            parameters=parametersCheckpoint,
+            vault_id=vault_id
+        )
+        request.body = VaultBackupReq(
+            checkpoint=checkpointbody
+        )
+        client.create_checkpoint(request)

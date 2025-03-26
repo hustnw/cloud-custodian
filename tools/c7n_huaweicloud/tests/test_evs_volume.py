@@ -33,7 +33,8 @@ class VolumeTest(BaseTest):
         p = self.load_policy({
             'name': 'last-backup-exceed-safe-time-interval',
             'resource': 'huaweicloud.evs-volume',
-            'filters': [{'type': 'last-backup-exceed-safe-time-interval', 'interval': 1, 'reference_time': '2025-03-21T10:12:52.866374'}]},
+            'filters': [{'type': 'last-backup-exceed-safe-time-interval',
+                         'interval': 1, 'reference_time': '2025-03-21T10:12:52.866374'}]},
             session_factory=factory)
         resources = p.run()
         self.assertEqual(len(resources), 2)
@@ -41,6 +42,18 @@ class VolumeTest(BaseTest):
         self.assertEqual(resources[0]['volume_type'], "GPSSD")
         self.assertEqual(resources[1]['name'], "volume-has-no-backup")
         self.assertEqual(resources[1]['volume_type'], "GPSSD")
+
+    def test_volume_age_filter(self):
+        factory = self.replay_flight_data('evs_volume_query')
+        p = self.load_policy({
+            'name': 'volume-age',
+            'resource': 'huaweicloud.evs-volume',
+            'filters': [{'type': 'volume-age', 'days': 1, 'op': 'ge'}]},
+            session_factory=factory)
+        resources = p.run()
+        self.assertEqual(len(resources), 1)
+        self.assertEqual(resources[0]['name'], "custodian-volume")
+        self.assertEqual(resources[0]['volume_type'], "GPSSD")
 
     def test_volume_delete_action(self):
         factory = self.replay_flight_data('evs_volume_delete')
@@ -107,7 +120,8 @@ class VolumeTest(BaseTest):
         p = self.load_policy({
             'name': 'evs_volume_vault_associate_to_policy',
             'resource': 'huaweicloud.evs-volume',
-            'actions': [{'type': 'associate-volume-vault-to-policy', 'policy_id': 'mock_vault_policy_id'}]},
+            'actions': [{'type': 'associate-volume-vault-to-policy',
+                         'policy_id': 'mock_vault_policy_id'}]},
             session_factory=factory)
         resources = p.run()
         self.assertEqual(len(resources), 1)
@@ -123,3 +137,13 @@ class VolumeTest(BaseTest):
             session_factory=factory)
         resources = p.run()
         self.assertEqual(len(resources), 3)
+
+    def test_volume_create_backup_action(self):
+        factory = self.replay_flight_data('evs_volume_backup_create')
+        p = self.load_policy({
+            'name': 'backup-volumes',
+            'resource': 'huaweicloud.evs-volume',
+            'actions': ['backup']},
+            session_factory=factory)
+        resources = p.run()
+        self.assertEqual(len(resources), 1)

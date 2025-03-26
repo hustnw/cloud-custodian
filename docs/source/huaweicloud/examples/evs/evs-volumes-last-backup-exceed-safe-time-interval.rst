@@ -14,3 +14,4 @@ EVS - check last backup creation time exceed safe time interval
         vault_id: vault_id
       - type: associate-volume-vault-to-policy
         policy_id: policy_id
+      - backup
