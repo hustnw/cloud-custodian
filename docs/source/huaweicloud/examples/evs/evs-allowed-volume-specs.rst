@@ -1,5 +1,5 @@
-EVS - Delete Unencrypted
-========================
+EVS - Filter volumes not in specified type
+==================================
 
 .. code-block:: yaml
 
