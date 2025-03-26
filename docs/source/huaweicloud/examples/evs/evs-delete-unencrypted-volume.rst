@@ -1,5 +1,5 @@
-EVS - Delete Unencrypted
-========================
+EVS - Delete unencrypted volumes
+================================
 
 .. code-block:: yaml
 
@@ -16,5 +16,8 @@ EVS - Delete Unencrypted
             - type: value
               key: metadata.__system__encrypted
               value: "empty"
+         - type: value
+           key: status
+           value: available
        actions:
          - delete
